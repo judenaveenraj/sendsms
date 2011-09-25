@@ -7,8 +7,9 @@
 # @Lisense BSD License 
 
 
-import urllib, urllib2, urlparse, re, argparse, ConfigParser, os.path, getpass,sys,logging, cookielib
+import urllib, urllib2, urlparse, re, argparse, ConfigParser, os.path, getpass,sys,logging, cookielib, threading, time
 
+tlock=threading.Lock()
 default_auth_file=os.path.expanduser('~/.sendsms.auth')
 ### Command Line Praser's Arguements
 parser=argparse.ArgumentParser(description="Sends sms non-interctively using indyarocks.com")
@@ -171,7 +172,7 @@ class SendSMS:
 ### sendmessage function
 def sendmessage(to_number,message):
     global confget
-    global o
+    global o, try_with_previous
     global logging
     ### send the message
     fullsendsms=confget('Auth','sendsms')
@@ -190,14 +191,19 @@ def sendmessage(to_number,message):
     data_returned=f.readlines()[-1]
     ###
     ### check if it was sent properly
-    logging.debug("Last line of Data returned: %s" % data_returned)
-    if data_returned.find(confget('Auth','sms_sent'))!=-1:
-        return 'sent'
-    elif data_returned.find(confget('Auth','loginpage'))!=-1:
-        return 'login'
-    else:
-        return 'failed'
-    ###
+    with tlock:
+        logging.debug("Last line of Data returned: %s" % data_returned)
+        if data_returned.find(confget('Auth','sms_sent'))!=-1:
+            loginfo("Seems Like message was successfully sent to %s." % n)
+            loginfo("\a")
+            return
+        elif data_returned.find(confget('Auth','loginpage'))!=-1:
+            try_with_previous=False
+            return
+        else:
+            loginfo("SMS Not sent to %s. Can't figure out why. Perhaps try again later\n" % n)
+            return
+###
 ###
 ### login function 
 def login(uname,passwd):
@@ -239,14 +245,9 @@ for n in senders_numbers:
             else:
                 loginfo("Login Failed. Check username, password")
                 sys.exit(3)
-        result=sendmessage(n,message)
-        if result=='sent':
-            loginfo("Seems Like message was successfully sent to %s." % n)
-            loginfo("\a")
-            break
-        elif result=='failed':
-            loginfo("SMS Not sent to %s. Can't figure out why. Perhaps try again later\n" % n)
-            break
-        elif result=='login':
-            try_with_previous=False
+        threading.Thread(target=sendmessage,args=(n,message)).start()
+        break
+
+        
+
                 
